@@ -10,4 +10,5 @@ if [ "$OWNER" != "user" ]; then
     sudo chown -R user:user /home/user 2>/dev/null || true
 fi
 
-exec open-terminal "$@"
+# Railway injects PORT; Open Terminal must listen on it
+exec open-terminal run --port ${PORT:-8000}
