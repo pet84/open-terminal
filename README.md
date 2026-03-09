@@ -141,8 +141,18 @@ Admins can configure Open Terminal connections for all their users from the admi
 2. Add the terminal **URL** and **API key**
 3. Enable the connection
 
-> [!TIP]
-> You can set up multi-user access yourself by running one Open Terminal per user or group. For automatic per-user container isolation, the **[Terminals](https://github.com/open-webui/terminals)** add-on is also available.
+#### Built-in Multi-User Isolation
+
+For shared deployments, enable per-user isolation inside a single container — no extra services needed:
+
+```bash
+docker run -d --name open-terminal -p 8000:8000 \
+  -e OPEN_TERMINAL_MULTI_USER=true \
+  -e OPEN_TERMINAL_API_KEY=your-secret-key \
+  ghcr.io/open-webui/open-terminal
+```
+
+When enabled, Open Terminal reads the `X-User-Id` header from the Open WebUI proxy, provisions a dedicated Linux user on first access, and runs all commands as that user via `sudo -u`. Each user's home directory is `chmod 700` — the kernel enforces isolation, no custom sandbox needed.
 
 ## API Docs
 
@@ -159,7 +169,7 @@ Full interactive API documentation is available at [http://localhost:8000/docs](
 </a>
 
 > [!TIP]
-> **Need multi-tenant?** Check out **[Terminals](https://github.com/open-webui/terminals)**, which provisions and manages isolated Open Terminal containers per user with a single authenticated API entry point.
+> **Need container-per-user isolation?** Check out **[Terminals](https://github.com/open-webui/terminals)**, which provisions and manages separate Open Terminal containers per user. For lighter deployments, built-in multi-user mode (`OPEN_TERMINAL_MULTI_USER=true`) provides per-user isolation inside a single container.
 
 ## License
 
