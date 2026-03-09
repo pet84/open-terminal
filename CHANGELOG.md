@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.3] - 2026-03-09
+
+### Fixed
+
+- 🔒 **Cross-user file API isolation** — file endpoints now block access to other users' home directories via path validation, returning `403 Forbidden`. System paths (`/etc`, `/usr`, etc.) remain accessible.
+- 🐛 **Terminal spawn directory** — interactive terminals now start in the user's home directory instead of `/home/user` (`sudo -i -u`).
+
+### Changed
+
+- ♻️ **Native Python I/O for writes** — replaced `sudo tee`, `sudo mkdir -p`, `sudo rm -rf`, `sudo mv` with native `aiofiles`/`os`/`shutil`. The only remaining subprocess is `sudo chown` for ownership fixup after writes. Home directories use `chmod 2770` (setgid + group rwx).
+
 ## [0.11.2] - 2026-03-09
 
 ### Changed
