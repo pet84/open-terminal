@@ -155,7 +155,7 @@ docker run -d --name open-terminal -p 8000:8000 \
 Each `X-User-Id` header maps to a dedicated Linux user with its own home directory. Files, commands, terminals, and port visibility are all isolated via standard Unix permissions. Network ports share a single namespace (visibility is filtered, but users can technically reach each other's services).
 
 > [!WARNING]
-> Multi-user mode relies on Linux permissions within a shared container. This is suitable for teams of trusted colleagues but **not** for untrusted users. Production deployments with untrusted users should use per-container isolation.
+> Multi-user mode provides process-level isolation via Unix permissions within a shared container. Users share the same kernel, network stack, and installed packages. It is not suitable for large or untrusted deployments and should use per-container isolation for stronger security boundaries.
 
 ## API Docs
 
