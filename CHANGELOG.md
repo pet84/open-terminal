@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.11] - 2026-03-11
+
+### Fixed
+
+- 🔒 **Upload path traversal** — `/files/upload` now resolves the `directory` parameter through `fs.resolve_path()` and sanitizes the uploaded filename with `os.path.basename()`, preventing path traversal attacks (e.g. `../../etc/passwd`) that could escape the user's home directory in multi-user mode. The composed path is normalized with `os.path.normpath()` and validated by `_check_path` before writing. All other file endpoints already had these protections.
+
 ## [0.11.10] - 2026-03-11
 
 ### Fixed

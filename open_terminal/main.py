@@ -878,16 +878,20 @@ async def upload_file(
         filename = os.path.basename(urlparse(url).path) or "download"
     elif file:
         content = await file.read()
-        filename = file.filename or "upload"
+        filename = os.path.basename(file.filename or "upload")
     else:
         raise HTTPException(
             status_code=400, detail="Provide either 'url' or a file upload."
         )
 
+    directory = fs.resolve_path(directory)
+    path = os.path.normpath(os.path.join(directory, filename))
+
     try:
         await fs.mkdir(directory)
-        path = os.path.join(directory, filename)
         await fs.write_bytes(path, content)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except OSError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"path": path, "size": len(content)}
