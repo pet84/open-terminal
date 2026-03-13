@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.13] - 2026-03-13
+
+### Fixed
+
+- 🐛 **Recursive home directory ownership fix** — `chown` in `ensure_os_user()` now uses `-R` to recursively fix ownership of all files within a user's home directory when the OS user is recreated with a different UID (e.g. after container recreation with a persistent volume). Previously only the top-level directory was re-owned, leaving files inside with a mismatched UID. ([#62](https://github.com/open-webui/open-terminal/issues/62))
+
 ## [0.11.12] - 2026-03-12
 
 ### Added

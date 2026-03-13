@@ -90,7 +90,7 @@ def ensure_os_user(username: str) -> str:
     # Fix ownership (home dir may pre-exist from a previous run with a
     # different UID assignment) and set permissions.
     subprocess.run(
-        ["sudo", "chown", f"{username}:{username}", home_dir],
+        ["sudo", "chown", "-R", f"{username}:{username}", home_dir],
         check=True,
         capture_output=True,
     )
