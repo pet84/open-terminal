@@ -55,7 +55,8 @@ RUN pip install --no-cache-dir \
     pyyaml toml jsonlines \
     tqdm rich \
     openpyxl weasyprint \
-    python-docx python-pptx pypdf csvkit
+    python-docx python-pptx pypdf csvkit \
+    paramiko
 
 COPY . .
 # setcap MUST run in the same layer as the Python binary to avoid
