@@ -1,4 +1,6 @@
-FROM python:3.12
+# Pin to a specific patch version for reproducible builds.
+# To pick up security patches, bump this version and rebuild.
+FROM python:3.12.13
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core utilities
@@ -18,19 +20,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Data processing
     jq xmlstarlet sqlite3 \
     # Media & documents
-    ffmpeg pandoc imagemagick \
+    ffmpeg pandoc imagemagick texlive-latex-base \
     # Compression
     zip unzip tar gzip bzip2 xz-utils zstd p7zip-full \
     # System
     procps htop lsof strace sysstat \
-    sudo tmux screen \
+    sudo tmux screen tini iptables ipset dnsmasq \
     ca-certificates gnupg apt-transport-https \
+    # Capabilities (needed for setcap on Python binary)
+    libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js (LTS)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI + Compose + Buildx (mount socket at runtime for access)
+RUN curl -fsSL https://get.docker.com | sh
+
+# Uncomment to apply security patches beyond what the base image provides.
+# Not recommended for reproducible builds; prefer bumping the base image tag.
+# RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /app
 
@@ -41,18 +53,26 @@ RUN pip install --no-cache-dir \
     requests beautifulsoup4 lxml \
     sqlalchemy psycopg2-binary \
     pyyaml toml jsonlines \
-    tqdm rich
+    tqdm rich \
+    openpyxl weasyprint \
+    python-docx python-pptx pypdf csvkit
 
 COPY . .
-RUN pip install --no-cache-dir .
+# setcap MUST run in the same layer as the Python binary to avoid
+# overlay2 copy-up corruption of libpython3.12.so ("file too short").
+RUN pip install --no-cache-dir . \
+    && setcap cap_setgid+ep $(readlink -f $(which python3))
 
-RUN useradd -m user && echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN useradd -m -s /bin/bash user && echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
 USER user
+ENV SHELL=/bin/bash
+ENV PATH="/home/user/.local/bin:${PATH}"
 WORKDIR /home/user
 
 EXPOSE 8000
 
 COPY entrypoint.sh /app/entrypoint.sh
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
 CMD ["run"]

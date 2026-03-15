@@ -24,14 +24,34 @@ That's it — you're up and running at `http://localhost:8000`.
 > [!TIP]
 > If you don't set an API key, one is generated automatically. Grab it with `docker logs open-terminal`.
 
-#### Customizing the Docker Environment
+#### Image Variants
 
-The default image ships with a broad set of tools, but you can tailor it to your needs. Fork the repo, edit the [Dockerfile](Dockerfile) to add or remove system packages, Python libraries, or language runtimes, then build your own image:
+| | `latest` | `slim` | `alpine` |
+|---|---|---|---|
+| **Best for** | AI agent sandboxes | Production / hardened | Edge / CI / minimal footprint |
+| **Size** | ~4 GB | ~430 MB | ~230 MB |
+| **Bundled tooling** | Node.js, gcc, ffmpeg, LaTeX, Docker CLI, data science libs | git, curl, jq | git, curl, jq |
+| **Install packages at runtime** | ✔ (has `sudo`) | ✘ | ✘ |
+| **Multi-user / egress firewall** | ✔ | ✔ | ✔ |
+
+**`slim`** and **`alpine`** have the same feature set. Slim uses Debian (glibc) for broader binary compatibility; Alpine uses musl libc and is smaller, but some C-extension pip packages may need to compile from source.
 
 ```bash
-docker build -t my-terminal .
-docker run -d --name open-terminal -p 8000:8000 my-terminal
+docker run -d -p 8000:8000 -e OPEN_TERMINAL_API_KEY=secret ghcr.io/open-webui/open-terminal:slim
+docker run -d -p 8000:8000 -e OPEN_TERMINAL_API_KEY=secret ghcr.io/open-webui/open-terminal:alpine
 ```
+
+> [!NOTE]
+> Slim and Alpine don't support `OPEN_TERMINAL_PACKAGES` / `OPEN_TERMINAL_PIP_PACKAGES`. To add packages, extend [Dockerfile.slim](Dockerfile.slim) or [Dockerfile.alpine](Dockerfile.alpine).
+
+#### Updating
+
+```bash
+docker pull ghcr.io/open-webui/open-terminal
+docker rm -f open-terminal
+```
+
+Then re-run the `docker run` command above.
 
 ### Bare Metal
 
@@ -49,6 +69,77 @@ open-terminal run --host 0.0.0.0 --port 8000 --api-key your-secret-key
 > [!CAUTION]
 > On bare metal, commands run directly on your machine with your user's permissions. Use Docker if you want sandboxed execution.
 
+#### Customizing the Docker Environment
+
+The easiest way to add extra packages is with environment variables — no fork needed:
+
+```bash
+docker run -d --name open-terminal -p 8000:8000 \
+  -e OPEN_TERMINAL_PACKAGES="cowsay figlet" \
+  -e OPEN_TERMINAL_PIP_PACKAGES="httpx polars" \
+  ghcr.io/open-webui/open-terminal
+```
+
+| Variable | Description |
+|---|---|
+| `OPEN_TERMINAL_PACKAGES` | Space-separated list of **apt** packages to install at startup |
+| `OPEN_TERMINAL_PIP_PACKAGES` | Space-separated list of **pip** packages to install at startup |
+
+> [!NOTE]
+> Packages are installed each time the container starts, so startup will take longer with large package lists. For heavy customization, build a custom image instead.
+
+#### Docker Access
+
+The image includes the Docker CLI, Compose, and Buildx. To let agents build images, run containers, etc., mount the host's Docker socket:
+
+```bash
+docker run -d --name open-terminal -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v open-terminal:/home/user \
+  ghcr.io/open-webui/open-terminal
+```
+
+> [!CAUTION]
+> Mounting the Docker socket gives the container full access to the host's Docker daemon. Only do this in trusted environments.
+
+For full control, fork the repo, edit the [Dockerfile](Dockerfile), and build your own image:
+
+```bash
+docker build -t my-terminal .
+docker run -d --name open-terminal -p 8000:8000 my-terminal
+```
+
+
+## Configuration
+
+Open Terminal can be configured via a TOML config file, environment variables, and CLI flags. Settings are resolved in this order (highest priority wins):
+
+1. **CLI flags** (`--host`, `--port`, `--api-key`, etc.)
+2. **Environment variables** (`OPEN_TERMINAL_API_KEY`, etc.)
+3. **User config** — `$XDG_CONFIG_HOME/open-terminal/config.toml` (defaults to `~/.config/open-terminal/config.toml`)
+4. **System config** — `/etc/open-terminal/config.toml`
+5. **Built-in defaults**
+
+Create a config file at either location with any of these keys (all optional):
+
+```toml
+host = "0.0.0.0"
+port = 8000
+api_key = "sk-my-secret-key"
+cors_allowed_origins = "*"
+log_dir = "/var/log/open-terminal"
+binary_mime_prefixes = "image,audio"
+execute_timeout = 5  # seconds to wait for command output (unset by default)
+```
+
+> [!TIP]
+> Use the system config at `/etc/open-terminal/config.toml` to set site-wide defaults for host and port, and the user config for personal settings like the API key — this keeps the key out of `ps` / `htop`.
+
+You can also point to a specific config file:
+
+```bash
+open-terminal run --config /path/to/my-config.toml
+```
 
 ## Using with Open WebUI
 
@@ -62,15 +153,30 @@ Users can connect their own Open Terminal instance from their user settings. Thi
 2. Add the terminal **URL** and **API key**
 3. Enable the connection
 
-### System-Level Connection
+### System-Level Connection (Multi-User)
 
-Admins can configure Open Terminal connections for their users from the admin panel. Multiple terminals can be set up with access controlled at the user or group level. Requests are proxied through the Open WebUI **backend**, so the terminal only needs to be reachable from the server.
+Admins can configure Open Terminal connections for all their users from the admin panel. No additional services required. Multiple terminals can be set up with access controlled at the user or group level. Requests are proxied through the Open WebUI **backend**, so the terminal only needs to be reachable from the server.
 
 1. Go to **Admin Settings → Integrations → Open Terminal**
 2. Add the terminal **URL** and **API key**
 3. Enable the connection
 
-For isolated, per-user terminal containers, see **[Terminals](https://github.com/open-webui/terminals)**, which requires an enterprise license for production use.
+#### Built-in Multi-User Isolation
+
+> [!CAUTION]
+> Single-container multi-user mode is **not designed for production multi-user deployments**. All users share the same kernel, network, and system resources with no hard isolation boundaries between them. If one user's process misbehaves, it can affect every other user on the system. This mode exists as a lightweight convenience for small, trusted groups — not as a security model you should rely on.
+
+For small, trusted deployments you can enable per-user isolation inside a single container:
+
+```bash
+docker run -d --name open-terminal -p 8000:8000 \
+  -v open-terminal:/home \
+  -e OPEN_TERMINAL_MULTI_USER=true \
+  -e OPEN_TERMINAL_API_KEY=your-secret-key \
+  ghcr.io/open-webui/open-terminal
+```
+
+Each user automatically gets a dedicated Linux account with its own home directory. Files, commands, and terminals are isolated between users via standard Unix permissions.
 
 ## API Docs
 
@@ -87,7 +193,7 @@ Full interactive API documentation is available at [http://localhost:8000/docs](
 </a>
 
 > [!TIP]
-> **Need multi-tenant?** Check out **[Terminals](https://github.com/open-webui/terminals)**, which provisions and manages isolated Open Terminal containers per user with a single authenticated API entry point.
+> **Need container-per-user isolation?** Check out **[Terminals](https://github.com/open-webui/terminals)**, which provisions and manages separate Open Terminal containers per user. For lighter deployments, built-in multi-user mode (`OPEN_TERMINAL_MULTI_USER=true`) provides per-user isolation inside a single container.
 
 ## License
 

@@ -4,12 +4,269 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.16] - 2026-03-13
+
+### Removed
+
+- 🧹 **Removed experimental `url` parameter from `/files/upload`** — this feature was never used by any known consumer (Open WebUI uses multipart uploads). The endpoint now only accepts direct file uploads.
+
+## [0.11.15] - 2026-03-13
+
+### Changed
+
+- 🖥️ **Redesigned startup output** — the CLI now displays Local and Network URLs, the generated API key, and a bind warning in a clean, modern key-value layout with color-coded labels. Network URL auto-detects your LAN IP when binding to `0.0.0.0`.
+- 🔒 **Bind warning** — a yellow warning is printed at startup when binding to `0.0.0.0`, nudging bare-metal users to restrict access with `--host 127.0.0.1`.
+
+## [0.11.14] - 2026-03-13
+
+### Fixed
+
+- 🏠 **Multi-user home directory hints** — `get_system_info()` no longer includes `as user 'user'` in the OpenAPI description when multi-user mode is active, removing a misleading hint that caused smaller LLMs to write to `/home/user` instead of their assigned directory. ([#57](https://github.com/open-webui/open-terminal/issues/57))
+- 🔄 **`/home/usr` path rewrite** — `resolve_path()` now also rewrites `/home/usr` (a common LLM hallucination) to the provisioned user's home directory, matching the existing `/home/user` rewrite.
+
+## [0.11.13] - 2026-03-13
+
+### Fixed
+
+- 🐛 **Recursive home directory ownership fix** — `chown` in `ensure_os_user()` now uses `-R` to recursively fix ownership of all files within a user's home directory when the OS user is recreated with a different UID (e.g. after container recreation with a persistent volume). Previously only the top-level directory was re-owned, leaving files inside with a mismatched UID. ([#62](https://github.com/open-webui/open-terminal/issues/62))
+
+## [0.11.12] - 2026-03-12
+
+### Added
+
+- 🔒 **Network egress filtering** (Docker only) — restrict which domains the container can access via the `OPEN_TERMINAL_ALLOWED_DOMAINS` env var. Supports wildcards (e.g. `*.github.com`). Set to empty string to block all outbound traffic; omit for full access. Skips gracefully on bare-metal installs.
+
+## [0.11.11] - 2026-03-11
+
+### Fixed
+
+- 🔒 **Upload path traversal** — `/files/upload` now resolves the `directory` parameter through `fs.resolve_path()` and sanitizes the uploaded filename with `os.path.basename()`, preventing path traversal attacks (e.g. `../../etc/passwd`) that could escape the user's home directory in multi-user mode. The composed path is normalized with `os.path.normpath()` and validated by `_check_path` before writing. All other file endpoints already had these protections.
+
+## [0.11.10] - 2026-03-11
+
+### Fixed
+
+- 🧟 **Zombie process cleanup** — process runner `kill()` methods now use `os.killpg()` to signal the entire process group instead of just the direct child PID. Background processes started inside terminals or `/execute` sessions (e.g. `sleep 100 &`) are now properly terminated on cleanup. `_cleanup_session()` always calls `process.wait()` after force-killing to prevent zombie entries in the process table.
+- 🐳 **Docker PID 1 reaping** — added `tini` as the container's init process (`ENTRYPOINT ["/usr/bin/tini", "--", ...]`). Python/uvicorn no longer runs as PID 1, so orphaned grandchild processes are automatically reaped instead of accumulating as zombies.
+
+## [0.11.9] - 2026-03-11
+
+### Added
+
+- ⏰ **Timestamp-sortable process IDs** — process IDs now use a `YYYYMMDD-HHMMSS-<random>` format so log files sort chronologically in the filesystem. The most recent log is always at the bottom of `ls`. ([#54](https://github.com/open-webui/open-terminal/issues/54))
+- ⚙️ **`OPEN_TERMINAL_MAX_LOG_SIZE`** — environment variable (or `max_log_size` in config.toml) to set the per-process log file size limit in bytes. Default: 50 MB.
+- ⚙️ **`OPEN_TERMINAL_LOG_RETENTION`** — environment variable (or `log_retention` in config.toml) to set how long finished-process log files are kept on disk before automatic cleanup. Default: 7 days.
+- 📁 **`utils/log.py`** — extracted process log management code (`BoundedLogWriter`, `log_process`, `read_log`, `tail_log`) into a dedicated module to reduce `main.py` size.
+
+### Fixed
+
+- 🐛 **Memory leak — unbounded process log growth** — JSONL log files for background processes now rotate when they exceed a configurable size limit (`OPEN_TERMINAL_MAX_LOG_SIZE`, default 50 MB). When the limit is reached, the oldest half of the file is discarded and writing continues, so the most recent output is always available. Previously, a long-running process could grow its log file without limit, and `_read_log()` loaded the entire file into memory on every status poll — causing the container to consume all available host RAM (~26 GB) and trigger the OOM killer. ([#52](https://github.com/open-webui/open-terminal/issues/52))
+
+## [0.11.8] - 2026-03-11
+
+### Fixed
+
+- 🔒 **Multi-user search isolation** — `glob_search`, `grep_search`, `listdir`, and `walk` now filter out entries belonging to other users' home directories during traversal. Previously, searching a parent directory like `/home` would expose all users' files. Added `is_path_allowed()` to `UserFS` for per-entry validation during `os.walk`. ([#46](https://github.com/open-webui/open-terminal/issues/46))
+
+## [0.11.7] - 2026-03-11
+
+### Fixed
+
+- 🐛 **Multi-user relative path resolution** — relative paths (e.g. `abcdef.txt`, `.`) now resolve against the provisioned user's home directory instead of the server process's `/home/user`. All file, search, and execute endpoints use the new `UserFS.resolve_path()` method. ([#47](https://github.com/open-webui/open-terminal/issues/47))
+- 🔄 **Auto-swap `/home/user` paths** — in multi-user mode, absolute paths under `/home/user` are automatically rewritten to the provisioned user's home directory, handling LLMs that hardcode the default path from the system description.
+
+## [0.11.6] - 2026-03-10
+
+### Added
+
+- ℹ️ **Conditional `/info` endpoint** — new `OPEN_TERMINAL_INFO` environment variable (or `info` in config.toml) registers a `GET /info` endpoint that returns operator-provided context to the AI. Use it to describe the environment (e.g. container base OS, available tools, GPU access). When the variable is unset, the endpoint is not registered.
+
+## [0.11.5] - 2026-03-09
+
+### Fixed
+
+- 🐛 **Terminal PTY warnings** — wrapped multi-user terminal sessions with `script -qc` for proper PTY allocation, eliminating `cannot set terminal process group` and `no job control` warnings.
+- 🐛 **Stale home directory ownership** — added `chown` after `useradd` to handle pre-existing home directories with mismatched UID/GID from previous container runs.
+
+### Changed
+
+- 📖 **README** — updated multi-user documentation with accurate description and production warning.
+
+## [0.11.4] - 2026-03-09
+
+### Added
+
+- 🔌 **Per-user port visibility** — in multi-user mode, `/ports` now filters by socket UID so each user only sees their own listening ports.
+
+### Changed
+
+- 📁 **Module reorganization** — moved `runner.py`, `notebooks.py`, and `user_isolation.py` into `open_terminal/utils/` for a cleaner package layout.
+
+## [0.11.3] - 2026-03-09
+
+### Fixed
+
+- 🔒 **Cross-user file API isolation** — file endpoints now block access to other users' home directories via path validation, returning `403 Forbidden`. System paths (`/etc`, `/usr`, etc.) remain accessible.
+- 🐛 **Terminal spawn directory** — interactive terminals now start in the user's home directory instead of `/home/user` (`sudo -i -u`).
+
+### Changed
+
+- ♻️ **Native Python I/O for writes** — replaced `sudo tee`, `sudo mkdir -p`, `sudo rm -rf`, `sudo mv` with native `aiofiles`/`os`/`shutil`. The only remaining subprocess is `sudo chown` for ownership fixup after writes. Home directories use `chmod 2770` (setgid + group rwx).
+
+## [0.11.2] - 2026-03-09
+
+### Changed
+
+- ♻️ **Native Python I/O for multi-user reads** — replaced subprocess-based file reads (`cat`, `find -printf`, `stat -c`, `test`) with native `aiofiles`/`os` calls. Home directories now use `chmod 750` with group membership so the server can read directly. Writes still use `sudo -u` for correct ownership. Cross-user isolation preserved via Unix group permissions.
+- 🐳 **Dockerfile** — grants `CAP_SETGID` to the Python binary via `setcap` so the server can refresh supplementary groups at runtime when provisioning new users.
+
+## [0.11.1] - 2026-03-09
+
+### Fixed
+
+- 🐛 **Multi-user file operations** — all file endpoints (list, read, view, display, replace, grep, glob, upload) now correctly run as the provisioned user. Previously only write/delete/move were handled, causing `PermissionError` on reads in user home directories.
+
+### Changed
+
+- ♻️ **UserFS abstraction** (`open_terminal/utils/fs.py`) — unified filesystem interface that transparently routes I/O through `sudo -u` in multi-user mode. Endpoints receive a `UserFS` instance via dependency injection and no longer branch on mode. Replaces per-endpoint sudo wrappers.
+
+## [0.11.0] - 2026-03-09
+
+### Added
+
+- 👥 **Multi-user mode** (`OPEN_TERMINAL_MULTI_USER=true`) — per-user OS accounts inside a single container, with standard Unix permissions (`chmod 700`) providing kernel-enforced isolation between users. When enabled, Open Terminal reads the `X-User-Id` header (set by the Open WebUI proxy), provisions a dedicated Linux user on first access via `useradd`, and runs all commands, file operations, and terminal sessions as that user via `sudo -u`. No Docker socket, no per-user containers, no enterprise license required. Fails fast with a clear error on non-Linux platforms. ([#38](https://github.com/open-webui/open-terminal/issues/38))
+- ⚙️ **`OPEN_TERMINAL_UVICORN_LOOP`** — environment variable (or `uvicorn_loop` in config.toml) to configure the Uvicorn event loop implementation. Defaults to `auto`.
+
+## [0.10.2] - 2026-03-06
+
+### Added
+
+- 🐳 **Docker CLI, Compose, and Buildx** bundled in the container image via [get.docker.com](https://get.docker.com). Mount the host's Docker socket (`-v /var/run/docker.sock:/var/run/docker.sock`) to let agents clone repos, build images, and run containers. The entrypoint automatically fixes socket group permissions so `docker` commands work without `sudo`.
+
+## [0.10.1] - 2026-03-06
+
+### Fixed
+
+- 🌐 **UTF-8 encoding on Windows** — all text file I/O now explicitly uses UTF-8 encoding instead of the system default. Fixes Chinese (and other non-ASCII) content being written as GB2312 on Chinese Windows, which broke tool-call chaining and produced garbled files. ([#21](https://github.com/open-webui/open-terminal/issues/21))
+
+## [0.10.0] - 2026-03-05
+
+### Added
+
+- 📓 **Notebook execution** (`/notebooks`) — multi-session Jupyter notebook execution via REST endpoints. Each session gets its own kernel via `nbclient`. Supports per-cell execution with rich outputs (images, HTML, LaTeX). `nbclient` and `ipykernel` are now core dependencies.
+- ⚙️ **`OPEN_TERMINAL_ENABLE_NOTEBOOKS`** — environment variable (or `enable_notebooks` in config.toml) to enable/disable notebook execution endpoints. Defaults to `true`. Exposed in `GET /api/config` features.
+
+## [0.9.3] - 2026-03-05
+
+### Added
+
+- 📓 **Notebook execution support** — new `notebooks` optional extra (`pip install open-terminal[notebooks]`) adds `nbclient` and `ipykernel` for running Jupyter notebooks with per-cell execution and full rich output (images, HTML, LaTeX). Keeps the core package lightweight for users who don't need notebook support.
+
+## [0.9.2] - 2026-03-05
+
+### Added
+
+- 📝 **Custom execute description** — new `OPEN_TERMINAL_EXECUTE_DESCRIPTION` environment variable (or `execute_description` in config.toml) appends custom text to the execute endpoint's OpenAPI description, letting you tell AI models about installed tools, capabilities, or conventions.
+
+## [0.9.1] - 2026-03-05
+
+### Added
+
+- 📦 **Startup package installation** — new `OPEN_TERMINAL_PACKAGES` and `OPEN_TERMINAL_PIP_PACKAGES` environment variables install additional apt and pip packages automatically when the Docker container starts. No need to fork the Dockerfile for common customizations.
+
+## [0.9.0] - 2026-03-04
+
+### Added
+
+- 🔍 **Port detection** (`GET /ports`) — discovers TCP ports listening on localhost, scoped to descendant processes of open-terminal (servers started via the terminal or `/execute`). Cross-platform: parses `/proc/net/tcp` on Linux, `lsof` on macOS, `netstat` on Windows. Zero new dependencies.
+- 🔀 **Port proxy** (`/proxy/{port}/{path}`) — reverse-proxies HTTP requests to `localhost:{port}`, enabling browser access to servers running inside the terminal environment. Supports all HTTP methods, forwards headers and body, returns 502 on connection refused. Uses the existing `httpx` dependency.
+- 📦 **`utils.port` module** — port detection and process-tree utilities extracted into `open_terminal/utils/port.py` for reusability.
+
+## [0.8.3] - 2026-03-04
+
+### Added
+
+- ⏱️ **Default execute timeout** — new `OPEN_TERMINAL_EXECUTE_TIMEOUT` environment variable (or `execute_timeout` in config.toml) sets a default wait duration for command execution. Smaller models that don't set timeouts now get command output inline instead of assuming failure.
+
+## [0.8.2] - 2026-03-02
+
+### Added
+
+- 🎨 **Terminal color support** — terminal sessions now set the `TERM` environment variable (default `xterm-256color`) so programs emit ANSI color codes. Configurable via `OPEN_TERMINAL_TERM` environment variable or `term` in config.toml.
+
+## [0.8.1] - 2026-03-02
+
+### Added
+
+- ⚙️ **Configurable terminal feature** — new `OPEN_TERMINAL_ENABLE_TERMINAL` environment variable (or `enable_terminal` in config.toml) to enable or disable the interactive terminal. When disabled, all `/api/terminals` routes and the WebSocket endpoint are not mounted. Defaults to `true`.
+- 🔍 **Config discovery endpoint** (`GET /api/config`) — returns server feature flags so clients like Open WebUI can discover whether the terminal is enabled and adapt the UI accordingly.
+
+## [0.8.0] - 2026-03-02
+
+### Added
+
+- 🪟 **Windows PTY support** — terminal sessions and command execution now work on Windows via [pywinpty](https://github.com/andfoy/pywinpty) (ConPTY). `pywinpty` is auto-installed on Windows. Interactive terminals (`/api/terminals`), colored output, and TUI apps now work on Windows instead of returning 503.
+- 🏭 **WinPtyRunner** — new `ProcessRunner` implementation using `winpty.PtyProcess` for full PTY semantics on Windows, including resize support. The `create_runner` factory now prefers Unix PTY → WinPTY → pipe fallback.
+
+## [0.7.2] - 2026-03-02
+
+### Added
+
+- 🔒 **Terminal session limit** — new `OPEN_TERMINAL_MAX_SESSIONS` environment variable (default `16`) caps the number of concurrent interactive terminal sessions. Dead sessions are automatically pruned before the limit is checked. Returns `429` when the limit is reached.
+
+### Fixed
+
+- 🐳 **PTY device exhaustion** — fixed `OSError: out of pty devices` by closing leaked file descriptors when subprocess creation fails after `pty.openpty()`. Both `PtyRunner` (command execution) and `create_terminal` (interactive sessions) now properly clean up on error paths.
+- 🛡️ **Graceful PTY error handling** — `create_terminal` now returns a clear `503` with a descriptive message when the system runs out of PTY devices, instead of an unhandled server error.
+
+## [0.7.1] - 2026-03-02
+
+### Fixed
+
+- 🐳 **Docker terminal shell** — fixed `can't access tty; job control turned off` error by setting the default shell to `/bin/bash` for the container user. Previously the user was created with `/bin/sh` (dash), which does not support interactive job control in a PTY.
+
+## [0.7.0] - 2026-03-02
+
+### Added
+
+- 🖥️ **Interactive terminal sessions** — full PTY-based terminal accessible via WebSocket, following the JupyterLab/Kubernetes resource pattern. `POST /api/terminals` to create a session, `GET /api/terminals` to list, `DELETE /api/terminals/{id}` to kill, and `WS /api/terminals/{id}` to attach. Non-blocking I/O ensures the terminal never starves other API requests. Sessions are automatically cleaned up on disconnect.
+
+## [0.6.0] - 2026-03-02
+
+### Added
+
+- 📄 **Configuration file support** — settings can now be loaded from TOML config files at /etc/open-terminal/config.toml (system-wide) and $XDG_CONFIG_HOME/open-terminal/config.toml (per-user, defaults to ~/.config/open-terminal/config.toml). Supports host, port, api_key, cors_allowed_origins, log_dir, and binary_mime_prefixes. CLI flags and environment variables still take precedence. Use --config to point to a custom config file. This keeps the API key out of ps / htop output.
+
+## [0.5.0] - 2026-03-02
+
+### Changed
+
+- 📂 **XDG Base Directory support** — the default log directory moved from ~/.open-terminal/logs to the XDG-compliant path $XDG_STATE_HOME/open-terminal/logs (defaults to ~/.local/state/open-terminal/logs when XDG_STATE_HOME is not set). The OPEN_TERMINAL_LOG_DIR environment variable still overrides the default.
+
+## [0.4.3] - 2026-03-02
+
+### Added
+
+- 🔐 **Docker secrets support** — set OPEN_TERMINAL_API_KEY_FILE to load the API key from a file (e.g. /run/secrets/...), following the convention used by the official PostgreSQL Docker image.
+
+## [0.4.2] - 2026-03-02
+
+### Added
+
+- 📦 **Move endpoint** (POST /files/move) for moving and renaming files and directories. Uses shutil.move for cross-filesystem support. Hidden from OpenAPI schema.
+
+## [0.4.1] - 2026-03-01
+
+### Fixed
+
+- 🙈 **Hidden upload_file from OpenAPI schema** — the /files/upload endpoint is now excluded from the public API docs, consistent with other internal-only file endpoints.
+
 ## [0.4.0] - 2026-03-01
 
 ### Removed
 
-- 📥 **Temporary download links** (`GET /files/download/link` and `GET /files/download/{token}`) — deprecated in favour of direct file navigation built into Open WebUI.
-- 🔗 **Temporary upload links** (`POST /files/upload/link`, `GET /files/upload/{token}`, and `POST /files/upload/{token}`) — deprecated in favour of direct file navigation built into Open WebUI.
+- 📥 **Temporary download links** (GET /files/download/link and GET /files/download/{token}) — deprecated in favour of direct file navigation built into Open WebUI.
+- 🔗 **Temporary upload links** (POST /files/upload/link, GET /files/upload/{token}, and POST /files/upload/{token}) — deprecated in favour of direct file navigation built into Open WebUI.
 
 ## [0.3.0] - 2026-02-25
 
